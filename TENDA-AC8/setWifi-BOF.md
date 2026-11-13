@@ -1,0 +1,123 @@
+# Tenda AC8 V2 V02.03.01.90_multi `goform/setWifi` `wifiPwd` Stack-Based Buffer Overflow
+
+## Summary
+
+A stack-based buffer overflow vulnerability exists in the `goform/setWifi` HTTP endpoint of Tenda AC8 V2 firmware `V02.03.01.90_multi`. The `wifiPwd` parameter is not length-validated before being persisted to NVRAM. On subsequent read/use of this value, an unsanitized copy operation overflows a fixed-size stack buffer, overwriting the saved return address and allowing full control of the program counter (PC). Exploitation results in complete denial of service: the device becomes entirely unresponsive (no LAN, no Wi-Fi, no response to the hardware reset button) and requires low-level UART/flash recovery to restore.
+
+- **Vendor:** Tenda
+- **Product:** AC8
+- **Hardware version:** V2
+- **Firmware version:** V02.03.01.90_multi
+- **Vulnerability class:** Stack-based Buffer Overflow
+- **CWE:** CWE-121 (Stack-based Buffer Overflow), CWE-787 (Out-of-bounds Write), CWE-20 (Improper Input Validation)
+- **Attack vector:** Network — standard HTTP POST to the device's admin interface (`goform/setWifi`). Exploitable from the LAN by default; exploitable remotely over the internet on any unit with WAN/remote management enabled, as the endpoint has no transport-layer restriction beyond normal HTTP(S) access to the management interface
+- **Impact:** Denial of Service (persistent, requires hardware-level recovery); potential Remote Code Execution (PC/RA fully attacker-controlled)
+
+## Affected Component
+
+- **Endpoint:** `POST /goform/setWifi`
+- **Parameter:** `wifiPwd`
+- **Underlying storage:** NVRAM (`Nvram` partition, flash offset `0x1f8000`, size `0x7fff`), mirrored to `Snvram` (flash offset `0x1f0000`, size `0x7fff`)
+![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/nvram_sram.png)
+## Technical Details
+
+### Request
+![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/request.png)
+
+- An oversized value (observed: 315 bytes of `0x41` / `A`) is submitted in the `wifiPwd` field of the `setWifi` form submission:
+
+- The device accepts the oversized value without any server-side rejection or truncation, and reports success:
+
+- No input length validation is performed on `wifiPwd` prior to it being accepted and written to persistent configuration storage.
+
+### Root Cause
+
+1. The oversized `wifiPwd` string is accepted by the `goform/setWifi` handler with no bounds checking and persisted into the device's NVRAM configuration block.
+2. The NVRAM integrity mechanism (MD5-checksummed) does not reject the oversized/corrupted entry at write time.
+![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/md5.png)
+3. On boot, when the stored configuration value is read and copied into a fixed-size stack buffer (consistent with an unsanitized `strcpy`/`sprintf`/`memcpy`-style call in the `wps`-related initialization path), the oversized value overflows the buffer, corrupting the saved stack frame including the return address.
+![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/wps.png)
+4. On function return, execution jumps to the attacker-controlled address, which is not a valid mapped address, triggering a TLB Miss exception and halting normal operation.
+![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/TLB.png)
+
+### Evidence of NVRAM Persistence and Corruption
+
+Serial console boot log confirms the configuration storage layout and shows checksum verification failures on both the primary and mirrored NVRAM blocks following the oversized write:
+
+![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/nvram_sram.png)
+
+The computed MD5 (`md5`) does not match the stored/expected value (`org`) for both the `Nvram` and `Snvram` blocks, while the smaller `Envram` block (boot-critical values such as MAC address) passes its CRC check (`crc:72 org:72`) and remains unaffected. This indicates the overflow corrupted a significant portion of the main configuration block rather than only the targeted field.
+
+### Evidence of Instruction Pointer Control
+
+Following the malicious `setWifi` request and subsequent reboot, the device's debug console produces a kernel-level exception dump. The crash is fully reproducible across multiple reboots with identical register state, confirming deterministic memory corruption rather than a transient fault.
+
+
+**Register state at crash:**
+![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/REG.png)
+![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/EPC.png)
+
+**Key findings:**
+- `PC` (Program Counter) = `0x41414141` — the processor attempted to fetch and execute an instruction directly from the attacker-supplied value. This is direct evidence of full instruction pointer hijack, not merely a crash.
+- `R31` (`ra`, the MIPS return address register) = `0x41414141` — confirms the overflow overwrote the saved return address on the stack; the crash occurs at the point the overflowed function returns and jumps to the corrupted address.
+- `s0`–`s7` registers (`R16`–`R23`) are also fully overwritten with `0x41414141`, showing the overflow spans well beyond the return address alone, into saved callee registers on the stack.
+- `BADVR` / `BadVA` = `0x41414140` confirms the faulting fetch address directly corresponds to the attacker-controlled pattern (MIPS instruction-fetch alignment accounts for the trailing nibble offset).
+- The stack dump is saturated with the attacker-supplied `0x41414141` pattern across dozens of contiguous words, confirming the overflow overwrote a large, contiguous region of the stack, consistent with no bounds checking whatsoever on the copy operation.
+
+**Call stack trace** (from the `wps`/WPS-related thread context) shows the corrupted stack propagating through multiple stack frames before the final unrecoverable fetch:
+
+![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/wps.png)
+
+A secondary exception immediately follows as the exception handler itself attempts to unwind a stack that is still partially corrupted, producing a second TLB miss and ultimately a watchdog-triggered reboot loop — the device cycles through boot, re-reads the corrupted NVRAM value, crashes identically, and reboots again, indefinitely, without external intervention.
+![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/2nd_exp.png)
+
+### Impact
+
+- **Denial of Service (persistent):** The device enters an unrecoverable boot loop. LAN, Wi-Fi, and the physical reset button are non-functional, as the crash occurs before user-facing services or the reset-to-defaults handler can initialize.
+- **Recovery requires hardware-level intervention:** Normal recovery paths (web UI, reset button, TFTP recovery mode if gated behind the same boot path) are unavailable. Recovery was only possible via UART console access to the device's boot-stage flash monitor, directly reading and rewriting the corrupted flash regions.
+- **Potential for Remote Code Execution:** Because PC and RA are both fully and precisely attacker-controlled (every byte of the 4-byte register is the attacker's chosen value), an attacker with knowledge of a valid, mapped, useful address (e.g., a ROP gadget or a location containing attacker-influenced data, such as the stack region itself if executable) could redirect execution to attacker-chosen code rather than an invalid address. This PoC used a non-exploitable placeholder address (`0x41414141`) to safely demonstrate control without weaponizing the primitive further.
+
+- **Privileged execution context:** The corrupted `epc` (Exception Program Counter) is itself a CP0 (Coprocessor 0) register — CP0 holds all MIPS exception/interrupt state and is only accessible via privileged (`mtc0`/`mfc0`) instructions. Its overwrite with the attacker-supplied value, combined with the `Status` register's `KERNEL` mode bit (`10000403`) set at the time of the fault, confirms the hijacked instruction fetch occurred entirely within the processor's privileged execution context. The affected firmware is a single-address-space eCos RTOS with no user/kernel privilege separation between threads (the crashing `wps` thread runs at the same privilege level as networking, HTTP handling, and all other system services), so any code execution achieved via this primitive is inherently full-system, unrestricted-privilege execution — there is no lower-privileged boundary to escalate from.
+
+### Reproduction Steps
+
+1. Authenticate to the Tenda AC8 V2 web management interface or use the base 64 `ecos_pw` of intercepted request.
+2. Submit a `POST /goform/setWifi` request with the `wifiPwd` parameter set to an oversized value (315+ bytes of a fixed byte, e.g. `0x41`).
+3. Observe the server responds `{"errCode":"0"}`, indicating the value was accepted with no validation.
+4. The device becomes unresponsive shortly after (on NVRAM read/use of the corrupted value, typically on next boot or relevant service restart).
+5. Connect to the device's UART header (TX/RX/GND) at 38400 baud rate and observe the kernel exception dump confirming the corruption, as detailed above.
+
+### Recovery Procedure (for reference)
+
+Recovery required interrupting the device's boot-stage flash monitor via UART and directly rewriting the corrupted `Nvram` (`0x1f8000`) and `Snvram` (`0x1f0000`) flash regions with clean data, as the monitor's `ERASESECTOR` command was found to be non-functional on this firmware build (verified via before/after `CMP` comparison showing no change to flash content). A working recovery path used the monitor's `FLW` (flash write) primitive to overwrite the corrupted sectors with a clean buffer staged in RAM.
+![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/erase.png)
+
+![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/still.png)
+
+![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/cmp.png)
+
+![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/FLR.png)
+
+
+## Supporting Weakness: Authentication Mechanism
+
+The captured request's session/authorization is carried entirely via a cookie containing the base64-encoded administrative password, rather than a server-issued, random session identifier:
+
+```
+Cookie: bLanguage=en; ecos_pw=YWRtaW4xMjM=; language=cn
+```
+
+`YWRtaW4xMjM=` decodes directly to the plaintext password `admin123`. This is encoding, not encryption or hashing, and the value does not change per session. This is relevant to the overall severity and exploitability of this finding:
+
+- **No real session management** (CWE-384 / CWE-613): the "session" token is the credential itself, trivially reversible by any party who observes it (network capture, browser history/cache, referrer leakage, logging middleboxes, etc.), rather than an unpredictable, server-bound, expiring session identifier.
+- **Insufficiently protected credentials** (CWE-522): because the password is recoverable by simply base64-decoding the cookie, interception of a single request yields the full admin credential, not just a replayable session.
+- **Likely CSRF exposure** (CWE-352): since authorization is carried passively via a cookie with no additional anti-CSRF token binding the request to deliberate user action, a request to `goform/setWifi` (including this overflow payload) could plausibly be triggered via a malicious webpage or embedded request while an admin session cookie is present, without requiring the attacker to know the admin password directly.
+
+This lowers the practical bar for an attacker to reach the `wifiPwd` overflow described above — compromising the authentication layer is not a strong barrier, and in a CSRF scenario may not be required at all.
+
+## Suggested Remediation
+
+- Enforce strict server-side length validation on all `wifiPwd`/`wifiPwd_5G` and related configuration parameters in the `goform/setWifi` handler, rejecting any value exceeding the legitimate maximum (e.g., 63 characters per WPA/WPA2 PSK specification) before accepting or persisting the request.
+- Replace unbounded copy operations (e.g., `strcpy`/`sprintf`) used when reading NVRAM-stored configuration values into stack buffers with bounded equivalents (e.g., `strncpy`/`snprintf`) sized to the destination buffer.
+- Add NVRAM write-time validation to reject oversized values before they are committed to flash, independent of the HTTP-layer validation, as defense in depth.
+- Replace the base64-encoded-password cookie with a proper server-issued, random, expiring session identifier, and implement anti-CSRF tokens on all state-changing endpoints including `goform/setWifi`.
