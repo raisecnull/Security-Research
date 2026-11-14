@@ -168,17 +168,56 @@ print(response.text)
 4. The device becomes unresponsive shortly after (on NVRAM read/use of the corrupted value, typically on next boot or relevant service restart).
 5. Connect to the device's UART header (TX/RX/GND) at 38400 baud rate and observe the kernel exception dump confirming the corruption, as detailed above.
 
-### Recovery Procedure (for reference)
-
-Recovery required interrupting the device's boot-stage flash monitor via UART and directly rewriting the corrupted `Nvram` (`0x1f8000`) and `Snvram` (`0x1f0000`) flash regions with clean data, as the monitor's `ERASESECTOR` command was found to be non-functional on this firmware build (verified via before/after `CMP` comparison showing no change to flash content). A working recovery path used the monitor's `FLW` (flash write) primitive to overwrite the corrupted sectors with a clean buffer staged in RAM.
-![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/erase.png)
-
-![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/still.png)
-
-![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/cmp.png)
-
-![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/FLR.png)
-
+### Recovery Procedure (Verified)
+ 
+Recovery is performed via the device's RTL819x boot-stage flash monitor, accessible by interrupting the boot sequence over UART.
+ 
+**Critical note:** This bootloader's command parser does **not** accept the `0x` hexadecimal prefix. All addresses must be passed as bare hex values (e.g., `1f8000` not `0x1f8000`). Passing the `0x` prefix causes the command to be silently accepted with no effect — this was the root cause of initial failed recovery attempts on the AC8 V2 and was confirmed by before/after `CMP` comparison showing zero change to flash content after `ERASESECTOR 0x1f8000` calls.
+ 
+**Verified working procedure (confirmed on AC5 V3, applicable to AC8 V2):**
+ 
+Interrupt boot at the `<RealTek>` prompt, then erase all 16 sectors of both Nvram and Snvram without the `0x` prefix:
+ 
+```
+ERASESECTOR 1f8000
+ERASESECTOR 1f9000
+ERASESECTOR 1fa000
+ERASESECTOR 1fb000
+ERASESECTOR 1fc000
+ERASESECTOR 1fd000
+ERASESECTOR 1fe000
+ERASESECTOR 1ff000
+ERASESECTOR 1f0000
+ERASESECTOR 1f1000
+ERASESECTOR 1f2000
+ERASESECTOR 1f3000
+ERASESECTOR 1f4000
+ERASESECTOR 1f5000
+ERASESECTOR 1f6000
+ERASESECTOR 1f7000
+reboot
+```
+ 
+Do **not** erase Envram (`1c000`) — this region holds the MAC address and hardware calibration data and was confirmed unaffected by the overflow (CRC check passes).
+ 
+**Successful recovery boot log (AC5 V3):**
+ 
+```
+Envram is initing! base_addr=0x1c000 size=0x3000
+Nvram is initing! base_addr=0x1f8000 size=0x7fff
+Snvram is initing! base_addr=0x1f0000 size=0x7fff
+NVRAM and NVRAMBAK is broked, so need restore!
+Some operations(NVRAM and NVRAMBAK is broked) lead to restore_defaults!
+Erase NVRAM to blank!
+Erase NVRAM BACKUP to blank!
+nvram restore from default
+nvram restore from envram
+====wlanssid_key:wl0_ssid====ssid_mac:Tenda_DFF3C0
+====wlanssid_key:wl1_ssid====ssid_mac:Tenda_DFF3C5_5G
+System start
+```
+ 
+The firmware detects both blocks as blank, regenerates factory defaults, restores MAC/calibration data from the intact Envram, and assigns default SSIDs. The device boots fully with LAN and Wi-Fi restored.
 
 ## Supporting Weakness: Authentication Mechanism
 
