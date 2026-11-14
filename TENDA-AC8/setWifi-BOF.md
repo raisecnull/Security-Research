@@ -200,7 +200,7 @@ reboot
  
 Do **not** erase Envram (`1c000`) — this region holds the MAC address and hardware calibration data and was confirmed unaffected by the overflow (CRC check passes).
  
-**Successful recovery boot log (AC5 V3):**
+**Successful recovery boot log:**
  
 ```
 Envram is initing! base_addr=0x1c000 size=0x3000
