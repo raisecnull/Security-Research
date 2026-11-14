@@ -86,6 +86,8 @@ A secondary exception immediately follows as the exception handler itself attemp
 1. Authenticate to the Tenda AC8 V2 web management interface or use the base 64 `ecos_pw` of intercepted request (Can be Unauthenticated if the owner did not set admin password).
 2. Submit a `POST /goform/setWifi` request with the `wifiPwd` parameter set to an oversized value (315+ bytes of a fixed byte, e.g. `0x41`).
    - Refer to this python script:
+   
+   **WARNING:** This PoC modifies persistent router configuration and can render the device unusable. Recovery may require UART access and direct flash-level intervention. Test only on hardware you own or are explicitly authorized to assess.
 ```
 import requests
 import urllib3
