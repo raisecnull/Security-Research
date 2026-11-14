@@ -13,7 +13,7 @@ A stack-based buffer overflow vulnerability exists in the `goform/setWifi` HTTP 
 - **Attack vector:** Network — standard HTTP POST to the device's admin interface (`goform/setWifi`). Exploitable from the LAN by default; exploitable remotely over the internet on any unit with WAN/remote management enabled, as the endpoint has no transport-layer restriction beyond normal HTTP(S) access to the management interface
 - **Impact:** Denial of Service (persistent, requires hardware-level recovery); potential Remote Code Execution (PC/RA fully attacker-controlled)
 - **CVSS 3.1:** AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H (CRITICAL)
-
+- By default, there is no session cookies if the admin password was not initialized. With that reason, it can be unauthenticated. Can be AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H
 ## Affected Component
 
 - **Endpoint:** `POST /goform/setWifi`
@@ -94,6 +94,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Replace BASE64PASSWORD with base64(admin_password)
 # e.g. base64.b64encode(b'yourpassword').decode()
+# leave ecos_pw for default routers (unauthenticated)
 cookies = {
     'bLanguage': 'en',
     'ecos_pw': 'BASE64PASSWORD=',
@@ -170,6 +171,9 @@ print(response.text)
 
 
 ## Supporting Weakness: Authentication Mechanism
+
+By default, there is no session cookies if the admin password was not initialized. With that reason, it can be unauthenticated.
+![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/unauth.png)
 
 The captured request's session/authorization is carried entirely via a cookie containing the base64-encoded administrative password, rather than a server-issued, random session identifier:
 
