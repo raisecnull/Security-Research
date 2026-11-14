@@ -189,6 +189,8 @@ This lowers the practical bar for an attacker to reach the `wifiPwd` overflow de
 - The AC8 V2 bootloader’s ERASESECTOR and FLW commands are non-functional — both silently accept commands but make no change to flash content (confirmed via CMP before/after comparison across multiple attempts including direct zero-byte overwrites, which must succeed on NOR flash physics). This rules out any purely bootloader-based recovery path.
 
 - Recovery is instead achieved by racing the application-level CLI, which initializes in the main thread concurrently with the crashing WPS thread. The firmware’s own nvram set command correctly writes the value and recalculates the MD5 checksum for both Nvram and Snvram blocks — something raw FLW cannot do.
+
+
 **Failed**
 ![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/cmp.png)
 
