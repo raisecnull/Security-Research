@@ -121,9 +121,15 @@ Resulting crash dump:
 
 ![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/SSID-BOF/jump.png)
 
+
+
 ![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/SSID-BOF/exploited-reg.png)
 
+
+
 ![](https://yzdhzjjwtsjwhabhuksf.supabase.co/storage/v1/object/public/assets/projects/Vuln_Research/AC8V2/SSID-BOF/exploited-kernel-reg.png)
+
+
 
 `PC`, `epc`, `ra`, `R31` ($ra), and `BadVA` all resolved to the injected marker `0xDEADFACE`, while `R28`–`R30` correctly show the `0x41414141` padding — confirming the payload landed exactly as designed and that the overwritten return address is used directly as the next instruction fetch target. This is full, deterministic control of the program counter, not merely a crash.
 
